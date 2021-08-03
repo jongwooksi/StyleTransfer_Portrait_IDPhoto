@@ -1,10 +1,11 @@
 import os
 
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ['CUDA_VISIBLE_DEVICES']='0,1'
 
 import tensorflow as tf
-from tensorflow.python.client import device_lib
-print(device_lib.list_local_devices())
+#from tensorflow.python.client import device_lib
+#print(device_lib.list_local_devices())
 import pickle
 import dlib
 import cv2
@@ -27,14 +28,13 @@ img_height = 256
 img_width = 256
 img_layer = 3
 
-to_restore = False
+to_restore = False 
 save_training_images = False
 to_train = True 
 to_test = False
 out_path = "./output"
 check_dir = "/home/jwsi/beautyGAN-tf-Implement-master/output/checkpoints"
 load_dir = "imgs2.txt"
-
 
 class BeautyGAN():
 
@@ -282,7 +282,16 @@ class BeautyGAN():
                             tf.concat([self.perc_A, self.perc_B, self.perc_fake_B, self.perc_fake_A], axis=0))
                         percep_norm, var = tf.nn.moments(self.perc, [1, 2], keep_dims=True)
                         self.perc = tf.divide(self.perc, tf.add(percep_norm, 1e-5))
+
+                        self.style = self.style_loss_cal(
+                            tf.concat([self.perc_A, self.perc_B, self.perc_fake_B, self.perc_fake_A], axis=0))
+                        percep_norm2, var = tf.nn.moments(self.style, [1, 2], keep_dims=True)
+                        self.style = tf.divide(self.style, tf.add(percep_norm2, 1e-5))
                         scope.reuse_variables()
+
+
+
+
 
                         cyc_loss = tf.reduce_mean(tf.abs(self.input_A_multigpu[gpu,:,:,:] - self.cyc_A)) + tf.reduce_mean(
                             tf.abs(self.input_B_multigpu[gpu,:,:,:] - self.cyc_B))
@@ -365,7 +374,7 @@ class BeautyGAN():
                         #histogram_loss_b_face = self.histogram_loss_cal(temp_source, temp_template2,self.input_A_mask_multigpu[gpu][3],
                         #                                                self.input_B_mask_multigpu[gpu][3])
                         faceloss_b = self.face_loss_cal(temp_source, temp_template2,self.input_B_mask_multigpu[gpu][3],
-                                                                        self.input_B_mask_multigpu[gpu][3])
+                                                                       self.input_B_mask_multigpu[gpu][3])
 
 
                         histogram_loss_b_lip2 = self.face_loss_cal(temp_source2, temp_template2, self.input_B_mask_multigpu[gpu][0],
@@ -398,10 +407,13 @@ class BeautyGAN():
                             tf.squared_difference(self.perc[0], self.perc[2])) + tf.reduce_mean(
                             tf.squared_difference(self.perc[1], self.perc[3]))
                         #perceptual_loss = tf.constant(0.0)
+                        style_loss = tf.reduce_mean(
+                            tf.squared_difference(self.perc[0], self.perc[3])) + tf.reduce_mean(
+                            tf.squared_difference(self.perc[1], self.perc[2]))
 
                         #g_loss = cyc_loss * 30 + disc_loss_B + disc_loss_A + perceptual_loss * 0.05 + makeup_loss*5
 
-                        g_loss = cyc_loss * 2  + innerface_loss*0.1 + perceptual_loss * 0.05 + disc_loss_B + disc_loss_A + faceloss 
+                        g_loss = cyc_loss * 10  + innerface_loss*0.1 + perceptual_loss * 0.05 + disc_loss_B + disc_loss_A + style_loss * 0.1 + faceloss*0.1
 
                         d_loss_A = (tf.reduce_mean(tf.square(self.fake_pool_rec_A)) + tf.reduce_mean(
                             tf.squared_difference(self.rec_A, 1))) / 2.0
@@ -424,14 +436,14 @@ class BeautyGAN():
                         self.cyc_loss_sum = tf.summary.scalar("cyc_loss",cyc_loss)
                         #self.facemask_loss_sum = tf.summary.scalar("facemask_loss",facemask_loss)
                         self.innerface_loss_sum = tf.summary.scalar("innerface_loss",innerface_loss)
-                        self.faceloss_sum = tf.summary.scalar("faceloss",faceloss)
+                        self.style_loss_sum = tf.summary.scalar("style_loss",style_loss)
                         
                         self.percep_loss_sum = tf.summary.scalar("perceptual_loss",perceptual_loss)
                         self.g_loss_sum = tf.summary.scalar("g_loss",g_loss)
                         self.fake_A_image = tf.summary.image(tensor=self.fake_A, name='self.fake_A')
                         self.fake_B_image = tf.summary.image(tensor=self.fake_B, name='self.fake_B')
                         self.g_summary = tf.summary.merge([
-                            self.disc_A_loss_sum,self.disc_B_loss_sum,self.cyc_loss_sum, self.innerface_loss_sum, self.faceloss_sum, self.percep_loss_sum, self.g_loss_sum, self.fake_A_image, self.fake_B_image
+                            self.disc_A_loss_sum,self.disc_B_loss_sum,self.cyc_loss_sum, self.innerface_loss_sum, self.style_loss_sum, self.percep_loss_sum, self.g_loss_sum, self.fake_A_image, self.fake_B_image
                         ],"g_summary")
 
                         self.d_A_loss_sum = tf.summary.scalar("d_A_loss",d_loss_A)
@@ -474,6 +486,10 @@ class BeautyGAN():
         vgg.build(input_tensor)
         return vgg.conv4_1
 
+    def style_loss_cal(self,input_tensor):
+        vgg = vgg16.Vgg16("./preTrainedModel/vgg16.npy")
+        vgg.build(input_tensor)
+        return vgg.conv1_2
 
     def mrf_loss_cal(self,source, template, ks):
         temp = tf.extract_image_patches(source, ksizes=[1, ks, ks, 1], strides=[1, 1, 1, 1], rates=[1, 1, 1, 1],
@@ -699,14 +715,21 @@ class BeautyGAN():
             if not os.path.exists(check_dir):
                 os.makedirs(check_dir)
 
-            for epoch in range(sess.run(self.global_step),500):
+            for epoch in range(sess.run(self.global_step),200):
                 print("in the epoch ",epoch)
-                saver.save(sess,os.path.join(check_dir,"beautyGAN"),global_step=epoch)
                 
+                try:
+                    saver.save(sess,os.path.join(check_dir,"jongwooksi"),global_step=epoch)
+                except:
+                    pass
+
+                #pathfile = "/home/jwsi/beautyGAN-tf-Implement-master/output/checkpoints/beautyGAN"
+                #saver.save(sess,pathfile,global_step=epoch)
+
                 if epoch<100:
                     curr_lr = 0.0001
                 else:
-                    curr_lr = 0.0001-0.0001*(epoch-100)/400
+                    curr_lr = 0.0001-0.0001*(epoch-100)/100
 
                 if save_training_images:
                     self.save_training_images(sess,epoch)
@@ -745,10 +768,13 @@ class BeautyGAN():
                     writer.add_summary(summary_str,epoch*self.train_num+ptr)
 
                     self.num_fake_inputs+=gpu_num
+                    #print(os.path.join(check_dir,"beautyGAN"))
+                
+                
                 sess.run(tf.assign(self.global_step,epoch+1))
             writer.add_graph(sess.graph)
 
-
+S
     def train(self):
         self.input_setup()
         self.model_setup()
