@@ -30,11 +30,11 @@ img_layer = 3
 
 to_restore = False 
 save_training_images = False
-to_train = True 
-to_test = False
+to_train = True
+to_test = False 
 out_path = "./output"
 check_dir = "/home/jwsi/beautyGAN-tf-Implement-master/output/checkpoints"
-load_dir = "imgs2.txt"
+load_dir = "imgshat.txt"
 
 class BeautyGAN():
 
@@ -76,8 +76,9 @@ class BeautyGAN():
 
             nose_mask = np.zeros([256,256])
           
+            hat_mask = np.zeros([256,256])
 
-            face_mask = np.full((256, 256), 255).astype(np.uint8)
+            #face_mask = np.full((256, 256), 255).astype(np.uint8)
             cv2.fillPoly(lip_mask, [np.array(temp[48:60]).reshape((-1, 1, 2))], (255, 255, 255))
             cv2.fillPoly(lip_mask, [np.array(temp[60:68]).reshape((-1, 1, 2))], (0, 0, 0))
 
@@ -126,11 +127,27 @@ class BeautyGAN():
 
             #cv2.polylines(face_mask, [np.array(temp[17:22]).reshape(-1, 1, 2)], False, (0, 0, 0), 7)
             #cv2.polylines(face_mask, [np.array(temp[22:27]).reshape(-1, 1, 2)], False, (0, 0, 0), 7)
+            '''
             cv2.fillPoly(face_mask, [np.array(temp[27:36]).reshape((-1, 1, 2))], (0, 0, 0))
             cv2.fillPoly(face_mask, [np.array(temp[36:42]).reshape((-1, 1, 2))], (0, 0, 0))
             cv2.fillPoly(face_mask, [np.array(temp[42:48]).reshape((-1, 1, 2))], (0, 0, 0))
             cv2.fillPoly(face_mask, [np.array(temp[48:60]).reshape((-1, 1, 2))], (0, 0, 0))
-            return lip_mask,eye_mask,nose_mask,face_mask
+            '''
+            minimum_eyebrow = min(x[1] for x in temp[17:26])
+            
+            hat_rectangle = np.array(
+                [[0, 0], [255,0], [255,minimum_eyebrow], [0, minimum_eyebrow]]
+            ).reshape((-1, 1, 2))
+           # print(hat_rectangle)
+
+            cv2.fillPoly(hat_mask, [hat_rectangle], (255, 255, 255))
+            
+
+           # cv2.imshow("asd",hat_mask)
+           # cv2.waitKey(1)
+
+           
+            return lip_mask,eye_mask,nose_mask,hat_mask
 
 
     def input_read(self,sess):
@@ -290,6 +307,11 @@ class BeautyGAN():
                         scope.reuse_variables()
 
 
+                        self.style2 = self.style_loss_cal2(
+                            tf.concat([self.perc_A, self.perc_B, self.perc_fake_B, self.perc_fake_A], axis=0))
+                        percep_norm3, var = tf.nn.moments(self.style2, [1, 2], keep_dims=True)
+                        self.style2 = tf.divide(self.style2, tf.add(percep_norm3, 1e-5))
+                        scope.reuse_variables()
 
 
 
@@ -398,7 +420,7 @@ class BeautyGAN():
                         faceloss_A = faceloss_r2 + faceloss_g2 + faceloss_b2
 
                         faceloss = faceloss_A + faceloss_B
-                        innerface_loss = innerface_loss_A + innerface_loss_B
+                        innerface_loss = innerface_loss_A  +innerface_loss_B
                         #facemask_loss = histogram_loss_r_face + histogram_loss_g_face + histogram_loss_b_face
                         # Using the same normalization as Gatys' neural style transfer
                         # Increase the lambda from 0.005 to 0.05
@@ -407,14 +429,29 @@ class BeautyGAN():
                             tf.squared_difference(self.perc[0], self.perc[2])) + tf.reduce_mean(
                             tf.squared_difference(self.perc[1], self.perc[3]))
                         #perceptual_loss = tf.constant(0.0)
-                        style_loss = tf.reduce_mean(
-                            tf.squared_difference(self.perc[0], self.perc[3])) + tf.reduce_mean(
-                            tf.squared_difference(self.perc[1], self.perc[2]))
+                        style_loss = self.style_loss_gram(self.style2[0], self.style2[3]) + self.style_loss_gram(self.style2[1], self.style2[2]) 
 
+
+                        #style_loss = tf.reduce_mean(
+                        #    tf.squared_difference(self.style2[0], self.style2[3])) + tf.reduce_mean(
+                        #    tf.squared_difference(self.style2[1], self.style2[2]))
+
+                        #20210902
+                      
                         #g_loss = cyc_loss * 30 + disc_loss_B + disc_loss_A + perceptual_loss * 0.05 + makeup_loss*5
 
-                        g_loss = cyc_loss * 10  + innerface_loss*0.1 + perceptual_loss * 0.05 + disc_loss_B + disc_loss_A + style_loss * 0.1 + faceloss*0.1
+                        # g_loss = cyc_loss * 20  + innerface_loss*0.5 + perceptual_loss * 0.05 + disc_loss_B + disc_loss_A + faceloss*2
 
+                        # 20210816
+                        # g_loss = cyc_loss * 50  + innerface_loss*0.1 + perceptual_loss * 0.01 + disc_loss_B + disc_loss_A + faceloss*0.2 + style_loss * 0.01
+                        # 20210817
+                        # faceloss = faceloss_A +1.5* faceloss_B
+                        # innerface_loss = innerface_loss_A  +1.5*innerface_loss_B
+                        # g_loss = cyc_loss * 50  + innerface_loss*0.1 + perceptual_loss * 0.01 + disc_loss_B + disc_loss_A + faceloss*0.2 + style_loss * 0.01
+
+                        #g_loss = cyc_loss * 50  + innerface_loss*0.1 + perceptual_loss * 0.1 + disc_loss_B + disc_loss_A + faceloss*0.5 + style_loss * 0.01
+                        g_loss = cyc_loss * 50  + innerface_loss*0.1 + perceptual_loss * 0.1 + disc_loss_B + disc_loss_A + faceloss*0.5 + style_loss * 0.01
+                        
                         d_loss_A = (tf.reduce_mean(tf.square(self.fake_pool_rec_A)) + tf.reduce_mean(
                             tf.squared_difference(self.rec_A, 1))) / 2.0
                         d_loss_B = (tf.reduce_mean(tf.square(self.fake_pool_rec_B)) + tf.reduce_mean(
@@ -437,13 +474,13 @@ class BeautyGAN():
                         #self.facemask_loss_sum = tf.summary.scalar("facemask_loss",facemask_loss)
                         self.innerface_loss_sum = tf.summary.scalar("innerface_loss",innerface_loss)
                         self.style_loss_sum = tf.summary.scalar("style_loss",style_loss)
-                        
+                        self.face_loss_sum = tf.summary.scalar("face_loss",faceloss)
                         self.percep_loss_sum = tf.summary.scalar("perceptual_loss",perceptual_loss)
                         self.g_loss_sum = tf.summary.scalar("g_loss",g_loss)
                         self.fake_A_image = tf.summary.image(tensor=self.fake_A, name='self.fake_A')
                         self.fake_B_image = tf.summary.image(tensor=self.fake_B, name='self.fake_B')
                         self.g_summary = tf.summary.merge([
-                            self.disc_A_loss_sum,self.disc_B_loss_sum,self.cyc_loss_sum, self.innerface_loss_sum, self.style_loss_sum, self.percep_loss_sum, self.g_loss_sum, self.fake_A_image, self.fake_B_image
+                            self.disc_A_loss_sum,self.disc_B_loss_sum,self.cyc_loss_sum, self.innerface_loss_sum, self.style_loss_sum, self.percep_loss_sum, self.g_loss_sum, self.face_loss_sum, self.fake_A_image, self.fake_B_image
                         ],"g_summary")
 
                         self.d_A_loss_sum = tf.summary.scalar("d_A_loss",d_loss_A)
@@ -490,6 +527,32 @@ class BeautyGAN():
         vgg = vgg16.Vgg16("./preTrainedModel/vgg16.npy")
         vgg.build(input_tensor)
         return vgg.conv1_2
+
+    def style_loss_cal2(self,input_tensor):
+        vgg = vgg16.Vgg16("./preTrainedModel/vgg16.npy")
+        vgg.build(input_tensor)
+        return vgg.conv2_2
+
+    def style_loss_gram(self, layer1, layer2):
+
+        n = layer1.shape[0] * layer1.shape[1]
+        m = layer1.shape[2]
+
+        layer1_t = tf.reshape(layer1, (n,m))
+        layer2_t = tf.reshape(layer2, (n,m))
+
+        layer1_co = tf.matmul(tf.transpose(layer1_t), layer1_t)
+        layer2_co = tf.matmul(tf.transpose(layer2_t), layer2_t)
+
+
+     
+        l = tf.divide(tf.square((layer1_co - layer2_co)), 4*112*112*112*112*128*128)
+        l = tf.reduce_sum(l)
+       
+        return l
+
+
+
 
     def mrf_loss_cal(self,source, template, ks):
         temp = tf.extract_image_patches(source, ksizes=[1, ks, ks, 1], strides=[1, 1, 1, 1], rates=[1, 1, 1, 1],
@@ -731,6 +794,7 @@ class BeautyGAN():
                 else:
                     curr_lr = 0.0001-0.0001*(epoch-100)/100
 
+                # 2021081617  200 80 100 
                 if save_training_images:
                     self.save_training_images(sess,epoch)
 
@@ -774,7 +838,7 @@ class BeautyGAN():
                 sess.run(tf.assign(self.global_step,epoch+1))
             writer.add_graph(sess.graph)
 
-S
+
     def train(self):
         self.input_setup()
         self.model_setup()
