@@ -30,11 +30,12 @@ img_layer = 3
 
 to_restore = False 
 save_training_images = False
-to_train = True
-to_test = False 
+to_train = False
+to_test =  True
 out_path = "./output"
 check_dir = "/home/jwsi/beautyGAN-tf-Implement-master/output/checkpoints"
-load_dir = "imgshat.txt"
+#load_dir = "imgsTestFinal.txt"
+load_dir = "imgsTestFinal2.txt"
 
 class BeautyGAN():
 
@@ -44,16 +45,16 @@ class BeautyGAN():
         dataset_B:makeup
         :return:
         """
-        filename_A = tf.train.match_filenames_once("./IDPhoto/trainA/*.jpg")
-        #filename_A = tf.train.match_filenames_once("./IDPhoto/testA/*")
+        #filename_A = tf.train.match_filenames_once("./IDPhoto/trainA/*.jpg")
+        filename_A = tf.train.match_filenames_once("./IDPhoto/testAA/*")
         print(filename_A)
         self.queue_length_A = tf.size(filename_A)
-        filename_B = tf.train.match_filenames_once("./IDPhoto/trainB/*.jpg")
-        #filename_B = tf.train.match_filenames_once("./IDPhoto/testB/*")
+        #filename_B = tf.train.match_filenames_once("./IDPhoto/trainB/*.jpg")
+        filename_B = tf.train.match_filenames_once("./IDPhoto/testB/*")
         self.queue_length_B = tf.size(filename_B)
         print(filename_A)
-        filename_A_queue = tf.train.string_input_producer(filename_A,shuffle=True)
-        filename_B_queue = tf.train.string_input_producer(filename_B,shuffle=True)
+        filename_A_queue = tf.train.string_input_producer(filename_A,shuffle=False)
+        filename_B_queue = tf.train.string_input_producer(filename_B,shuffle=False)
 
         image_reader = tf.WholeFileReader()
         _, image_file_A = image_reader.read(filename_A_queue)
@@ -64,6 +65,10 @@ class BeautyGAN():
 
     def get_mask(self,input_face, detector, predictor,window=5):
         gray = cv2.cvtColor(input_face, cv2.COLOR_BGR2GRAY)
+
+        sharpening_mask1 = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+        gray = cv2.filter2D(gray, -1, sharpening_mask1)
+
         dets = detector(gray, 1)
 
         for face in dets:
@@ -419,8 +424,8 @@ class BeautyGAN():
                         faceloss_B = faceloss_r + faceloss_g + faceloss_b
                         faceloss_A = faceloss_r2 + faceloss_g2 + faceloss_b2
 
-                        faceloss = faceloss_A + faceloss_B
-                        innerface_loss = innerface_loss_A  +innerface_loss_B
+                        faceloss = faceloss_A + 1.5*faceloss_B
+                        innerface_loss = innerface_loss_A  +1.5*innerface_loss_B
                         #facemask_loss = histogram_loss_r_face + histogram_loss_g_face + histogram_loss_b_face
                         # Using the same normalization as Gatys' neural style transfer
                         # Increase the lambda from 0.005 to 0.05
@@ -429,7 +434,9 @@ class BeautyGAN():
                             tf.squared_difference(self.perc[0], self.perc[2])) + tf.reduce_mean(
                             tf.squared_difference(self.perc[1], self.perc[3]))
                         #perceptual_loss = tf.constant(0.0)
-                        style_loss = self.style_loss_gram(self.style2[0], self.style2[3]) + self.style_loss_gram(self.style2[1], self.style2[2]) 
+                        style_loss = self.style_loss_gram(self.style[0], self.style[3]) + self.style_loss_gram(self.style[1], self.style[2]) 
+
+                        style_loss += self.style_loss_gram2(self.style2[0], self.style2[3]) + self.style_loss_gram2(self.style2[1], self.style2[2]) 
 
 
                         #style_loss = tf.reduce_mean(
@@ -450,7 +457,7 @@ class BeautyGAN():
                         # g_loss = cyc_loss * 50  + innerface_loss*0.1 + perceptual_loss * 0.01 + disc_loss_B + disc_loss_A + faceloss*0.2 + style_loss * 0.01
 
                         #g_loss = cyc_loss * 50  + innerface_loss*0.1 + perceptual_loss * 0.1 + disc_loss_B + disc_loss_A + faceloss*0.5 + style_loss * 0.01
-                        g_loss = cyc_loss * 50  + innerface_loss*0.1 + perceptual_loss * 0.1 + disc_loss_B + disc_loss_A + faceloss*0.5 + style_loss * 0.01
+                        g_loss = cyc_loss * 50  + innerface_loss*0.2 + perceptual_loss * 0.1 + disc_loss_B + disc_loss_A + faceloss*0.5 + style_loss * 1   #0.5
                         
                         d_loss_A = (tf.reduce_mean(tf.square(self.fake_pool_rec_A)) + tf.reduce_mean(
                             tf.squared_difference(self.rec_A, 1))) / 2.0
@@ -526,7 +533,7 @@ class BeautyGAN():
     def style_loss_cal(self,input_tensor):
         vgg = vgg16.Vgg16("./preTrainedModel/vgg16.npy")
         vgg.build(input_tensor)
-        return vgg.conv1_2
+        return vgg.conv3_2
 
     def style_loss_cal2(self,input_tensor):
         vgg = vgg16.Vgg16("./preTrainedModel/vgg16.npy")
@@ -534,6 +541,24 @@ class BeautyGAN():
         return vgg.conv2_2
 
     def style_loss_gram(self, layer1, layer2):
+
+        n = layer1.shape[0] * layer1.shape[1]
+        m = layer1.shape[2]
+
+        layer1_t = tf.reshape(layer1, (n,m))
+        layer2_t = tf.reshape(layer2, (n,m))
+
+        layer1_co = tf.matmul(tf.transpose(layer1_t), layer1_t)
+        layer2_co = tf.matmul(tf.transpose(layer2_t), layer2_t)
+
+
+     
+        l = tf.divide(tf.square((layer1_co - layer2_co)), 4*56*56*56*56*256*256)
+        l = tf.reduce_sum(l)
+       
+        return l
+
+    def style_loss_gram2(self, layer1, layer2):
 
         n = layer1.shape[0] * layer1.shape[1]
         m = layer1.shape[2]
@@ -928,17 +953,37 @@ class BeautyGAN():
 
             if not os.path.exists("./output/imgs/test"):
                 os.makedirs("./output/imgs/test")
-
-            for i in range(self.train_num):
+            contentlength = 0
+            contentcount = 0
+            stylecount = 0
+            size = 1 * 22 
+            for i in range(size):
                 # for multi gpu
+                '''
                 fake_A_temp,fake_B_temp = sess.run([self.fake_As,self.fake_Bs],feed_dict={
                         self.input_A_multigpu:np.squeeze(self.A_input[i:i+gpu_num]),
                         self.input_B_multigpu:np.squeeze(self.B_input[i:i+gpu_num]),
                 })
-                imsave("./output/imgs/test/fakeA_" + str(i) + ".jpg",
-                       ((fake_A_temp[0][0] + 1) * 127.5).astype(np.uint8))
+                '''
+                fake__temp,fake_B_temp = sess.run([self.fake_As,self.fake_Bs],feed_dict={
+                        self.input_A_multigpu:np.squeeze(self.A_input[stylecount:stylecount+gpu_num]),
+                        self.input_B_multigpu:np.squeeze(self.B_input[contentcount:contentcount+gpu_num]),
+                })
+                #imsave("./output/imgs/test/fakeA_" + str(i) + ".jpg",
+                #       ((fake_A_temp[0][0] + 1) * 127.5).astype(np.uint8))
                 imsave("./output/imgs/test/fakeB_" + str(i) + ".jpg",
                        ((fake_B_temp[0][0] + 1) * 127.5).astype(np.uint8))
+
+                contentlength += 1
+                stylecount += 1
+
+                if contentlength == 1:
+                    contentcount += 1
+                    contentlength = 0
+                    stylecount = 0
+               
+
+                    
                 # for single gpu
                 # fake_A_temp,fake_B_temp = sess.run([self.fake_A,self.fake_B],feed_dict={
                 #     self.input_A:self.A_input[i],
