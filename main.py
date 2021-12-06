@@ -35,7 +35,7 @@ to_test =  True
 out_path = "./output"
 check_dir = "/home/jwsi/beautyGAN-tf-Implement-master/output/checkpoints"
 #load_dir = "imgsTestFinal.txt"
-load_dir = "imgsTestFinal2.txt"
+load_dir = "imgsTestFinal3.txt"
 
 class BeautyGAN():
 
@@ -50,7 +50,7 @@ class BeautyGAN():
         print(filename_A)
         self.queue_length_A = tf.size(filename_A)
         #filename_B = tf.train.match_filenames_once("./IDPhoto/trainB/*.jpg")
-        filename_B = tf.train.match_filenames_once("./IDPhoto/testB/*")
+        filename_B = tf.train.match_filenames_once("./IDPhoto/testBB/*")
         self.queue_length_B = tf.size(filename_B)
         print(filename_A)
         filename_A_queue = tf.train.string_input_producer(filename_A,shuffle=False)
@@ -64,6 +64,41 @@ class BeautyGAN():
 
 
     def get_mask(self,input_face, detector, predictor,window=5):
+        gray = cv2.cvtColor(input_face, cv2.COLOR_BGR2GRAY)
+
+        dets = detector(gray, 1)
+
+        for face in dets:
+            shape = predictor(input_face, face)
+            temp = []
+            for pt in shape.parts():
+                temp.append([pt.x, pt.y])
+            lip_mask = np.zeros([256, 256])
+            eye_mask = np.zeros([256,256])
+
+            nose_mask = np.zeros([256,256])
+          
+            hat_mask = np.zeros([256,256])
+
+            #face_mask = np.full((256, 256), 255).astype(np.uint8)
+            cv2.fillPoly(lip_mask, [np.array(temp[48:60]).reshape((-1, 1, 2))], (255, 255, 255))
+            cv2.fillPoly(lip_mask, [np.array(temp[60:68]).reshape((-1, 1, 2))], (0, 0, 0))
+
+            cv2.fillPoly(eye_mask, [np.array(temp[36:42]).reshape((-1, 1, 2))], (255, 255, 255))
+            cv2.fillPoly(eye_mask, [np.array(temp[42:47]).reshape((-1, 1, 2))], (255, 255, 255))
+            cv2.fillPoly(nose_mask, [np.array(temp[27:36]).reshape((-1, 1, 2))], (255, 255, 255))
+
+            minimum_eyebrow = min(x[1] for x in temp[17:26])
+            
+            hat_rectangle = np.array(
+                [[0, 0], [255,0], [255,minimum_eyebrow], [0, minimum_eyebrow]]
+            ).reshape((-1, 1, 2))
+    
+            cv2.fillPoly(hat_mask, [hat_rectangle], (255, 255, 255))
+      
+            return lip_mask,eye_mask,nose_mask,hat_mask
+
+    def get_mask2(self,input_face, detector, predictor,window=5):
         gray = cv2.cvtColor(input_face, cv2.COLOR_BGR2GRAY)
 
         sharpening_mask1 = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
@@ -91,68 +126,16 @@ class BeautyGAN():
             cv2.fillPoly(eye_mask, [np.array(temp[42:47]).reshape((-1, 1, 2))], (255, 255, 255))
             cv2.fillPoly(nose_mask, [np.array(temp[27:36]).reshape((-1, 1, 2))], (255, 255, 255))
 
-
-
-            '''
-            left_left = min(x[0] for x in temp[36:42])
-            left_right = max(x[0] for x in temp[36:42])
-            left_bottom = min(x[1] for x in temp[36:42])
-            left_top = max(x[1] for x in temp[36:42])
-            left_rectangle = np.array(
-                [[left_left - window, left_top + window], [left_right + window, left_top + window],
-                 [left_right + window, left_bottom - window], [left_left - window, left_bottom - window]]
-            ).reshape((-1, 1, 2))
-            cv2.fillPoly(eye_mask, [left_rectangle], (255, 255, 255))
-            cv2.fillPoly(eye_mask, [np.array(temp[36:42]).reshape((-1, 1, 2))], (0, 0, 0))
-
-            right_left = min(x[0] for x in temp[42:48])
-            right_right = max(x[0] for x in temp[42:48])
-            right_bottom = min(x[1] for x in temp[42:48])
-            right_top = max(x[1] for x in temp[42:48])
-            right_rectangle = np.array(
-                [[right_left - window, right_top + window], [right_right + window, right_top + window],
-                 [right_right + window, right_bottom - window], [right_left - window, right_bottom - window]]
-            ).reshape((-1, 1, 2))
-            cv2.fillPoly(eye_mask, [right_rectangle], (255, 255, 255))
-            cv2.fillPoly(eye_mask, [np.array(temp[42:47]).reshape((-1, 1, 2))], (0, 0, 0))
-
-            nose_left = min(x[0] for x in temp[27:36])
-            nose_right = max(x[0] for x in temp[27:36])
-            nose_bottom = min(x[1] for x in temp[27:36])
-            nose_top = max(x[1] for x in temp[27:36])
-            nose_rectangle = np.array(
-                [[nose_left - window, nose_top + window], [nose_right + window, nose_top + window],
-                 [nose_right + window, nose_bottom - window], [nose_left - window, nose_bottom - window]]
-            ).reshape((-1, 1, 2))
-            cv2.fillPoly(nose_mask, [nose_rectangle], (255, 255, 255))
-            cv2.fillPoly(nose_mask, [np.array(temp[27:36]).reshape((-1, 1, 2))], (0, 0, 0))
-
-            '''
-
-
-            #cv2.polylines(face_mask, [np.array(temp[17:22]).reshape(-1, 1, 2)], False, (0, 0, 0), 7)
-            #cv2.polylines(face_mask, [np.array(temp[22:27]).reshape(-1, 1, 2)], False, (0, 0, 0), 7)
-            '''
-            cv2.fillPoly(face_mask, [np.array(temp[27:36]).reshape((-1, 1, 2))], (0, 0, 0))
-            cv2.fillPoly(face_mask, [np.array(temp[36:42]).reshape((-1, 1, 2))], (0, 0, 0))
-            cv2.fillPoly(face_mask, [np.array(temp[42:48]).reshape((-1, 1, 2))], (0, 0, 0))
-            cv2.fillPoly(face_mask, [np.array(temp[48:60]).reshape((-1, 1, 2))], (0, 0, 0))
-            '''
             minimum_eyebrow = min(x[1] for x in temp[17:26])
             
             hat_rectangle = np.array(
                 [[0, 0], [255,0], [255,minimum_eyebrow], [0, minimum_eyebrow]]
             ).reshape((-1, 1, 2))
-           # print(hat_rectangle)
-
+    
             cv2.fillPoly(hat_mask, [hat_rectangle], (255, 255, 255))
-            
-
-           # cv2.imshow("asd",hat_mask)
-           # cv2.waitKey(1)
-
-           
+      
             return lip_mask,eye_mask,nose_mask,hat_mask
+
 
 
     def input_read(self,sess):
@@ -177,7 +160,7 @@ class BeautyGAN():
                 image_tensor = sess.run(self.image_A)
                 if image_tensor.size==img_width*img_height*img_layer:
                     temp = ((image_tensor+1)*127.5).astype(np.uint8)
-                    res = self.get_mask(temp,self.detector,self.predictor)
+                    res = self.get_mask2(temp,self.detector,self.predictor)
                     if res!=None:
                         self.A_input[cur_A] = image_tensor.reshape((batch_size, img_height, img_width, img_layer))
                         self.A_input_mask[cur_A][0] = np.equal(res[0],255)
@@ -956,7 +939,7 @@ class BeautyGAN():
             contentlength = 0
             contentcount = 0
             stylecount = 0
-            size = 1 * 22 
+            size = 1 * 5 
             for i in range(size):
                 # for multi gpu
                 '''
